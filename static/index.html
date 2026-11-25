@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocuRecon AI — Trade Document Intelligence & Customs Audit Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Distinct Horizontal Workspace Header (No Left Rail) -->
+  <header class="top-nav">
+    <div class="top-nav-inner">
+      <div class="brand-group">
+        <div class="brand-seal">DR</div>
+        <span class="brand-name">DocuRecon AI</span>
+        <span class="brand-tag">WCO NLP + UN/LOCODE</span>
+      </div>
+
+      <nav class="nav-tabs" aria-label="Workspace Sections">
+        <button class="nav-tab active" data-view="workbench">Document Workbench</button>
+        <button class="nav-tab" data-view="classifier">AI Tariff Classifier &amp; Ports</button>
+        <button class="nav-tab" data-view="pos">SAP Purchase Orders</button>
+        <button class="nav-tab" data-view="history">Audit Ledger</button>
+      </nav>
+
+      <div class="nav-actions">
+        <button class="btn btn-emerald btn-sm" onclick="toggleCopilot(true)">✦ Trade AI Copilot</button>
+        <a class="btn btn-outline btn-sm" href="/docs" target="_blank">API Docs</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <!-- Flat Architectural Live Metrics Strip -->
+    <section class="metrics-strip">
+      <div class="metric-cell">
+        <div class="metric-kicker">Audited Manifests</div>
+        <div class="metric-val mono" id="mAudited">--</div>
+        <div class="metric-sub">Persisted in SQLite</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-kicker">Freight Leakage Caught</div>
+        <div class="metric-val mono" style="color:var(--crimson)" id="mLeakage">$--</div>
+        <div class="metric-sub">Unapproved carrier surcharges</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-kicker">Green Channel Rate</div>
+        <div class="metric-val mono" style="color:var(--emerald)" id="mGreen">--%</div>
+        <div class="metric-sub">100% ERP &amp; WCO verified</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-kicker">Official WCO HS Index</div>
+        <div class="metric-val mono" id="mHsCodes">--</div>
+        <div class="metric-sub">TF-IDF NLP vectorized</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-kicker">UN/LOCODE Seaports</div>
+        <div class="metric-val mono" id="mPorts">--</div>
+        <div class="metric-sub">Official UN maritime registry</div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 1: SPLIT-PANE DOCUMENT WORKBENCH ===================== -->
+    <section class="view active" id="view-workbench">
+      <div class="workbench-grid">
+        <!-- LEFT PANE: Upload + Sample Queue + Visual Document Entity Highlighter -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Document Ingestion &amp; Visual Preview</div>
+              <div class="panel-sub">Single or multi-file batch audit (.pdf, .txt, .csv, .json)</div>
+            </div>
+          </div>
+
+          <div class="upload-box" onclick="document.getElementById('fileUpload').click()">
+            <input type="file" id="fileUpload" accept=".pdf,.txt,.csv,.json" multiple style="display:none">
+            <div style="font-weight:700;font-size:13px;" id="uploadStatus">Drop or click to upload PDF / TXT / CSV manifests</div>
+            <div style="font-size:11.5px;color:var(--ink-muted);margin-top:3px;">Supports multi-file batch audit · English, Portuguese &amp; French</div>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);margin-bottom:8px;">
+            Real Sample Shipping Documents (Click to Audit)
+          </div>
+          <div id="sampleList">Loading real PDFs...</div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);">Parsed Document Sheet (Entity Highlights)</span>
+            <span class="tag tag-neutral" id="docLangTag">--</span>
+          </div>
+          <div class="doc-sheet" id="visualDocSheet">Select a sample PDF above or upload your own shipping document to see live pypdf text extraction with color-coded audit highlights.</div>
+        </div>
+
+        <!-- RIGHT PANE: AI Fraud Risk + WCO NLP Tariff Classifier + Variance Audit + Debit Note -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title" id="wbTitle">Audit Workbench</div>
+              <div class="panel-sub" id="wbSub">Select or upload a shipping document to run live WCO NLP + ERP verification</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="tag tag-neutral" id="wbActionTag">READY</span>
+              <button class="btn btn-outline btn-sm" id="btnShowSapJson">SAP IDoc JSON</button>
+            </div>
+          </div>
+
+          <div class="verdict healthy" id="wbVerdict" style="display:none;"></div>
+
+          <!-- Dual AI Engine Cards: Fraud Risk Gauge + Live WCO NLP Tariff Classifier -->
+          <div class="ai-split">
+            <div class="sub-card">
+              <div class="risk-header">
+                <div>
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);">AI Trade Fraud &amp; Risk Score</div>
+                  <div style="font-size:12px;font-weight:600;" id="riskTierLabel">--</div>
+                </div>
+                <div class="risk-score-big" id="riskScoreNum">--</div>
+              </div>
+              <div class="risk-bar-track"><div class="risk-bar-fill" id="riskBarFill" style="width:0%"></div></div>
+              <div id="riskFactorsList"></div>
+            </div>
+
+            <div class="sub-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div>
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);">WCO NLP Tariff Classifier (6,940 Codes)</div>
+                  <div style="font-size:11.5px;color:var(--ink-secondary);">Semantic prediction from commodity description</div>
+                </div>
+                <span class="tag tag-neutral" id="nlpAgreeTag">--</span>
+              </div>
+              <div id="nlpPredictionsList"></div>
+            </div>
+          </div>
+
+          <!-- Line-by-Line ERP Variance Table -->
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);margin-bottom:8px;">
+            Line-by-Line Extracted Document vs Authorized SAP Purchase Order
+          </div>
+          <div class="table-wrap" style="margin-bottom:16px;">
+            <table>
+              <thead>
+                <tr><th>Audit Dimension</th><th>Document Declared</th><th>SAP PO Ground Truth</th><th>Variance Finding</th><th>Status</th></tr>
+              </thead>
+              <tbody id="wbComparisonBody">
+                <tr><td colspan="5" style="text-align:center;color:var(--ink-muted);padding:24px;">Loading initial manifest audit...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Automated Multilingual Carrier Debit Note / Dispute Generator -->
+          <div id="disputeSection" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <div>
+                <div style="font-size:12px;font-weight:700;">Automated Carrier Debit Note / Dispute Notice</div>
+                <div style="font-size:11.5px;color:var(--ink-muted);" id="disputeSubject"></div>
+              </div>
+              <button class="btn btn-ink btn-sm" id="btnCopyDispute">Copy Dispute Notice</button>
+            </div>
+            <div class="letter-box" id="disputeBody"></div>
+          </div>
+
+          <!-- SAP IDoc JSON Panel -->
+          <div id="sapPanel" style="display:none;margin-top:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);">SAP INVOIC02_CUSTOMS_RECON Payload</span>
+              <button class="btn btn-outline btn-sm" id="btnCopySap">Copy JSON</button>
+            </div>
+            <pre class="json-box" id="sapJsonBox"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 2: STANDALONE AI HS CLASSIFIER & UN PORTS ===================== -->
+    <section class="view" id="view-classifier">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Live AI WCO Harmonized System (HS) Tariff Classifier</div>
+            <div class="panel-sub">Type any raw commercial product description — our TF-IDF semantic model predicts exact 6-digit WCO tariff codes from 6,940 official descriptions</div>
+          </div>
+        </div>
+        <form id="hsClassifyForm" style="display:flex;gap:10px;margin-bottom:14px;">
+          <input type="text" id="hsClassifyInput" placeholder="Try: 'Frozen boneless beef forequarters 25kg' or 'Parboiled long-grain rice' or 'Whole milk powder'..." required>
+          <button type="submit" class="btn btn-emerald">Classify HS Code</button>
+        </form>
+        <div id="hsClassifyOutput"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <div><div class="panel-title">Official WCO HS Registry (6,940 Codes)</div><div class="panel-sub">Live SQLite lookup</div></div>
+          </div>
+          <input type="text" id="hsSearchBox" placeholder="Filter by code (0207, 1006) or keyword..." style="margin-bottom:12px;">
+          <div class="table-wrap" style="max-height:420px;overflow-y:auto;">
+            <table>
+              <thead><tr><th>Code</th><th>Sec</th><th>Official WCO Description</th></tr></thead>
+              <tbody id="hsRegistryBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div><div class="panel-title">Official UN/LOCODE Maritime Seaports (17,647 Ports)</div><div class="panel-sub">Verified United Nations seaport directory</div></div>
+          </div>
+          <input type="text" id="portSearchBox" placeholder="Filter by LOCODE (AOLAD, BRSSZ, INNSA, AEJEA) or city..." style="margin-bottom:12px;">
+          <div class="table-wrap" style="max-height:420px;overflow-y:auto;">
+            <table>
+              <thead><tr><th>LOCODE</th><th>Country</th><th>Seaport Name</th><th>Coordinates</th></tr></thead>
+              <tbody id="portRegistryBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 3: SAP PURCHASE ORDERS ===================== -->
+    <section class="view" id="view-pos">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-header">
+          <div><div class="panel-title">Register Authorized SAP Purchase Order</div><div class="panel-sub">Stored live in SQLite for immediate reconciliation</div></div>
+        </div>
+        <form id="poCreateForm">
+          <div class="grid-4" style="margin-bottom:10px;">
+            <div class="field"><label>PO Number</label><input type="text" name="po_number" placeholder="PO-DXB-2026-9901" required></div>
+            <div class="field"><label>Vendor</label><input type="text" name="vendor_name" placeholder="Global Foods Export Ltd" required></div>
+            <div class="field"><label>Commodity</label><input type="text" name="commodity" placeholder="Frozen Whole Poultry" required></div>
+            <div class="field"><label>HS Code (6-digit)</label><input type="text" name="hs_code" placeholder="020712" required></div>
+            <div class="field"><label>Origin LOCODE</label><input type="text" name="origin_locode" placeholder="BRSSZ" maxlength="5" required></div>
+            <div class="field"><label>Dest. LOCODE</label><input type="text" name="destination_locode" placeholder="AEJEA" maxlength="5" required></div>
+            <div class="field"><label>Approved Weight (MT)</label><input type="number" step="0.1" name="approved_weight_mt" value="25.0" required></div>
+            <div class="field"><label>Contract Freight ($)</label><input type="number" step="10" name="approved_freight_usd" value="4800" required></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+            <div style="display:flex;gap:10px;">
+              <div class="field" style="width:140px;"><label>Max Temp (°C)</label><input type="number" step="0.5" name="max_temp_celsius" value="-18.0" required></div>
+              <div class="field" style="width:120px;"><label>Incoterms</label><select name="incoterms"><option>CIF</option><option>CFR</option><option>FOB</option></select></div>
+            </div>
+            <button type="submit" class="btn btn-ink">Save SAP PO</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div><div class="panel-title">Authorized SAP PO Ledger</div><div class="panel-sub">Active purchase orders in <code>data/docurecon.db</code></div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>PO Number</th><th>Vendor</th><th>Commodity</th><th>HS Code</th><th>Corridor</th><th>Weight</th><th>Freight</th><th>Max Temp</th><th></th></tr></thead>
+            <tbody id="poListBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== VIEW 4: AUDIT LEDGER ===================== -->
+    <section class="view" id="view-history">
+      <div class="panel">
+        <div class="panel-header">
+          <div><div class="panel-title">Persistent Trade Compliance Audit Ledger</div><div class="panel-sub">Every single-file and batch reconciliation logged in SQLite</div></div>
+          <a class="btn btn-ink btn-sm" href="/api/audits-export-csv">Download CSV Ledger</a>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Audit Ref</th><th>Filename</th><th>Lang</th><th>PO Number</th><th>Corridor</th><th>HS Code</th><th>Freight Var.</th><th>Verdict</th><th></th></tr></thead>
+            <tbody id="ledgerBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Slide-Over Trade Compliance AI Copilot -->
+  <aside class="copilot-drawer" id="copilotDrawer">
+    <div class="copilot-head">
+      <div>
+        <div style="font-weight:700;font-size:14.5px;">Trade Compliance AI Copilot</div>
+        <div style="font-size:11px;color:#9ca3af;">Grounded in SQLite Audits + 6,940 WCO HS Codes</div>
+      </div>
+      <button class="btn btn-outline btn-sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,0.25);" onclick="toggleCopilot(false)">✕</button>
+    </div>
+    <div class="copilot-body" id="copilotMessages">
+      <div class="msg bot">
+        Ask me to classify any commodity into official WCO HS codes, summarize carrier freight overcharges to recover, or inspect cold-chain quarantines.
+        <div class="msg-src">DocuRecon AI · Live Trade Engine</div>
+      </div>
+    </div>
+    <div class="copilot-chips">
+      <button class="chip-btn" onclick="askCopilot('Show all freight overcharges to recover')">Freight Overcharges</button>
+      <button class="chip-btn" onclick="askCopilot('Classify HS code for frozen boneless beef forequarters')">Classify Beef HS</button>
+      <button class="chip-btn" onclick="askCopilot('Which containers have thermal quarantine alerts?')">Thermal Alerts</button>
+      <button class="chip-btn" onclick="askCopilot('Give me a compliance audit summary')">Audit Summary</button>
+    </div>
+    <form class="copilot-foot" id="copilotForm">
+      <input type="text" id="copilotInput" placeholder="Ask about HS codes, overcharges, or POs..." required>
+      <button type="submit" class="btn btn-emerald btn-sm">Ask</button>
+    </form>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
