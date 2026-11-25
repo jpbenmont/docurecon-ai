@@ -1,6 +1,29 @@
 # DocuRecon AI — Trade Document Intelligence, WCO NLP Tariff & ERP Audit Workbench
 
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![WCO HS Codes](https://img.shields.io/badge/WCO%20HS%20Index-6%2C940%20Codes-047857?style=flat-square)](#official-public-trade-data-provenance)
+[![UN/LOCODE](https://img.shields.io/badge/UN%2FLOCODE-17%2C647%20Seaports-141517?style=flat-square)](#official-public-trade-data-provenance)
+[![Tests](https://img.shields.io/badge/Tests-10%2F10%20Passing-059669?style=flat-square)](#quick-start)
+[![License: MIT](https://img.shields.io/badge/License-MIT-141517?style=flat-square)](LICENSE)
+
 A precision customs compliance, fraud risk scoring, and multilingual shipping document reconciliation workbench built with **Python, FastAPI, Scikit-Learn, pypdf, and SQLite**. Parses genuine **PDF, TXT, CSV, and JSON** shipping documents in **English, Portuguese, and French**, classifies commodities against **6,940 official WCO HS Tariff Codes**, verifies ports against **17,647 official UN/LOCODE Seaports**, and cross-matches every field against a live **SAP Purchase Order ledger**.
+
+---
+
+## System Architecture
+
+```mermaid
+flowchart LR
+    A["Multilingual PDF / TXT / CSV\n(EN • PT • FR Manifests)"] --> B["pypdf + Multilingual\nStructured Parser"]
+    C["Official WCO HS (6,940)\n& UN/LOCODE (17,647)"] --> D[("SQLite Trade DB\n+ SAP PO Ledger")]
+    B --> E["TF-IDF NLP Tariff\nClassifier (6,940 Codes)"]
+    D --> E
+    B --> F["ERP Variance &\n0-100 Fraud Risk Engine"]
+    D --> F
+    E --> F
+    F --> G["Split-Pane Workbench\n+ Carrier Debit Notes\n+ SAP IDoc JSON"]
+```
 
 ---
 
