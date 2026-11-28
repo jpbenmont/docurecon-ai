@@ -12,27 +12,29 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 797 >>
+<< /Length 826 >>
 stream
 BT
-/F1 14 Tf
-50 770 Td
+/F1 13 Tf
+48 764 Td
 (MARITIME OCEAN BILL OF LADING \(ORIGINAL\)) Tj
 /F1 10 Tf
-0 -28 Td
+0 -26 Td
 (Carrier: MSC Mediterranean Shipping Company S.A.) Tj
 0 -18 Td
 (Vessel / Voyage: MSC CAPUCINE / VOY 241A) Tj
 0 -18 Td
 (PO Reference: PO-LUA-2026-8841) Tj
 0 -18 Td
-(Container No: MSCU 892341-2) Tj
+(Container No: MSCU 892341-7) Tj
 0 -18 Td
 (Shipper: JBS S.A. \(Brazil\)) Tj
 0 -18 Td
 (Port of Loading: Santos, Brazil \(BRSSZ\)) Tj
 0 -18 Td
 (Port of Discharge: Luanda, Angola \(AOLAD\)) Tj
+0 -18 Td
+(Incoterms: CIF) Tj
 0 -18 Td
 (HS Tariff Code: 0207.12) Tj
 0 -18 Td
@@ -60,5 +62,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1159
+1188
 %%EOF

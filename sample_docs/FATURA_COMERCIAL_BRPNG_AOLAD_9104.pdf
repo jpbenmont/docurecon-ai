@@ -12,27 +12,29 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 728 >>
+<< /Length 757 >>
 stream
 BT
-/F1 14 Tf
-50 770 Td
+/F1 13 Tf
+48 764 Td
 (FATURA COMERCIAL DE EXPORTACAO \(COMMERCIAL INVOICE\)) Tj
 /F1 10 Tf
-0 -28 Td
+0 -26 Td
 (Transportadora: CMA CGM Shipping Line) Tj
 0 -18 Td
 (Navio: CMA CGM BENGUELA / VOY 118W) Tj
 0 -18 Td
 (Pedido de Compra: PO-LUA-2026-9104) Tj
 0 -18 Td
-(Contentor: CMAU 452109-8) Tj
+(Contentor: CMAU 452109-0) Tj
 0 -18 Td
 (Exportador: Marfrig Global Foods S.A.) Tj
 0 -18 Td
 (Porto de Embarque: Paranagua, Brazil \(BRPNG\)) Tj
 0 -18 Td
 (Porto de Descarga: Luanda, Angola \(AOLAD\)) Tj
+0 -18 Td
+(Incoterms: CIF) Tj
 0 -18 Td
 (NCM / HS: 0202.30) Tj
 0 -18 Td
@@ -60,5 +62,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1090
+1119
 %%EOF

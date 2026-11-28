@@ -1,10 +1,10 @@
 """
-DocuRecon AI — SQLite Data Layer
+DocuRecon AI — SQLite Data Layer (v4.0)
 Provides safe parameterized queries across:
   - Official WCO Harmonized System (HS) Tariff Codes (6,940 rows)
   - Official UN/LOCODE Global Maritime Seaports (17,647 rows)
-  - SAP Purchase Orders (Full CRUD)
-  - Persistent Customs Audit History
+  - SAP Purchase Orders (Full Create/Read/Update/Delete)
+  - Persistent Customs Audit History + Deduplicated Shipment Metrics
 """
 
 import json
@@ -99,7 +99,7 @@ def search_locodes(query: str = "", limit: int = 40) -> List[Dict[str, Any]]:
                 """
                 SELECT locode, country, name, subdivision, status, function_code, coordinates
                 FROM un_locodes
-                WHERE locode IN ('BRSSZ','BRPNG','AOLAD','CNSGH','INNSA','AEJEA','NGLOS','NLRTM','USLAX','SGSIN','NAWVB','ZADUR')
+                WHERE locode IN ('BRSSZ','BRPNG','AOLAD','CNSGH','INNSA','AEJEA','NGLOS','NLRTM','RUNVS','SGSIN','NAWVB','ZADUR')
                 ORDER BY locode ASC
                 """
             ).fetchall()
@@ -170,6 +170,31 @@ def upsert_purchase_order(po: Dict[str, Any]) -> Dict[str, Any]:
     return record
 
 
+def ensure_seed_purchase_orders(seed_list: List[Dict[str, Any]]) -> None:
+    """Idempotently inserts any missing seed POs without overwriting user edits."""
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with db_conn() as conn:
+        for po in seed_list:
+            exists = conn.execute(
+                "SELECT 1 FROM purchase_orders WHERE UPPER(po_number) = UPPER(?)",
+                (po["po_number"],),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    """
+                    INSERT INTO purchase_orders
+                    (po_number, vendor_name, commodity, hs_code, origin_locode, destination_locode,
+                     approved_weight_mt, approved_freight_usd, approved_cargo_usd, max_temp_celsius,
+                     incoterms, status, created_at)
+                    VALUES (:po_number, :vendor_name, :commodity, :hs_code, :origin_locode, :destination_locode,
+                            :approved_weight_mt, :approved_freight_usd, :approved_cargo_usd, :max_temp_celsius,
+                            :incoterms, :status, :created_at)
+                    """,
+                    {**po, "created_at": now_iso},
+                )
+        conn.commit()
+
+
 def delete_purchase_order(po_number: str) -> bool:
     with db_conn() as conn:
         cur = conn.execute(
@@ -222,12 +247,44 @@ def list_audits(limit: int = 50) -> List[Dict[str, Any]]:
                    hs_code, action_code, severity, discrepancies_count,
                    freight_variance_usd, weight_variance_mt, audited_at
             FROM audit_history
-            ORDER BY audited_at DESC
+            ORDER BY id DESC
             LIMIT ?
             """,
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_latest_unique_audits() -> List[Dict[str, Any]]:
+    """Returns only the latest audit per unique (filename, po_number) to prevent metric double-counting."""
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT a.audit_ref, a.filename, a.doc_type, a.language_detected, a.po_number,
+                   a.container_number, a.carrier, a.origin_locode, a.destination_locode,
+                   a.hs_code, a.action_code, a.severity, a.discrepancies_count,
+                   a.freight_variance_usd, a.weight_variance_mt, a.payload_json, a.audited_at
+            FROM audit_history a
+            INNER JOIN (
+                SELECT filename, COALESCE(po_number, '') AS po_key, MAX(id) AS max_id
+                FROM audit_history
+                GROUP BY filename, COALESCE(po_number, '')
+            ) latest ON a.id = latest.max_id
+            ORDER BY a.id DESC
+            """
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                payload = json.loads(d.pop("payload_json", "{}"))
+                d["cargo_variance_usd"] = float(payload.get("metrics", {}).get("cargo_variance_usd", 0.0))
+                d["risk_score"] = int(payload.get("fraud_risk", {}).get("score", 0))
+            except Exception:
+                d["cargo_variance_usd"] = 0.0
+                d["risk_score"] = 0
+            out.append(d)
+        return out
 
 
 def get_audit_by_ref(audit_ref: str) -> Optional[Dict[str, Any]]:

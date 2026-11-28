@@ -2,10 +2,11 @@ MARITIME CARGO MANIFEST - NORTH EUROPE TO WEST AFRICA
 Carrier: Hapag-Lloyd AG
 Vessel / Voyage: EXPRESS ROME / VOY 314S
 PO Reference: PO-LOS-2026-5520
-Container No: HLXU 330918-4
+Container No: HLXU 330918-7
 Shipper: FrieslandCampina Export B.V.
 Port of Loading: Rotterdam, Netherlands (NLRTM)
 Port of Discharge: Lagos, Nigeria (NGLOS)
+Incoterms: CIF
 HS Tariff Code: 0402.21
 Commodity: Whole Milk Powder (Fat > 1.5%) 25kg Kraft Bags
 Gross Weight: 24.00 MT

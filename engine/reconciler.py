@@ -1,15 +1,16 @@
 """
-DocuRecon AI — Customs & ERP Reconciliation Engine
+DocuRecon AI — Customs & ERP Reconciliation Engine (v4.0)
 Cross-matches parsed shipping documents against:
   1. Authorized SAP Purchase Orders (SQLite)
-  2. Official WCO Harmonized System Tariff Codes (SQLite)
+  2. Official WCO Harmonized System Tariff Codes (SQLite) + Hierarchy NLP Classifier
   3. Official UN/LOCODE Maritime Seaports (SQLite)
-Returns pure semantic JSON (zero frontend styling coupled into backend logic).
+  4. Cargo Valuation (FOB/CIF) Invoice Integrity & ISO 6346 Container Check Digit
 """
 
 import hashlib
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from engine.database import (
     get_purchase_order,
@@ -21,6 +22,12 @@ from engine.parser import parse_document
 from engine.tariff_classifier import WCOTariffClassifier
 from engine.risk_scorer import compute_trade_risk, generate_dispute_notice
 
+_LEGAL_STOPWORDS = {
+    "s", "a", "sa", "ltd", "limited", "pvt", "private", "inc", "corp", "corporation",
+    "co", "company", "llc", "bv", "nv", "gmbh", "ag", "plc", "global", "international",
+    "export", "exports", "trading", "foods", "group", "brazil", "india", "china", "uae",
+}
+
 
 def _format_hs(code: str) -> str:
     digits = "".join(ch for ch in (code or "") if ch.isdigit())
@@ -29,13 +36,28 @@ def _format_hs(code: str) -> str:
     return digits or "N/A"
 
 
+def _vendor_tokens(name: str) -> Set[str]:
+    raw = re.findall(r"[a-z0-9]+", (name or "").lower())
+    meaningful = {t for t in raw if len(t) >= 2 and t not in _LEGAL_STOPWORDS}
+    return meaningful or {t for t in raw if len(t) >= 2}
+
+
+def _shippers_match(extracted_shipper: str, po_vendor: str) -> bool:
+    t_doc = _vendor_tokens(extracted_shipper)
+    t_po = _vendor_tokens(po_vendor)
+    if not t_doc or not t_po:
+        return False
+    overlap = len(t_doc & t_po)
+    smaller = min(len(t_doc), len(t_po))
+    return (overlap / smaller) >= 0.5
+
+
 def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True) -> Dict[str, Any]:
     extracted = parse_document(filename, content)
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     digest = hashlib.sha256(f"{filename}:{now_iso}:{len(content)}".encode()).hexdigest()[:8].upper()
     audit_ref = f"AUD-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{digest}"
 
-    # Official trade registry validations + live NLP WCO Tariff classification
     hs_official = lookup_hs_code(extracted["hs_code"])
     origin_port = lookup_locode(extracted["origin_locode"])
     dest_port = lookup_locode(extracted["destination_locode"])
@@ -72,6 +94,8 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
                 "weight_variance_pct": 0.0,
                 "freight_variance_usd": 0.0,
                 "freight_variance_pct": 0.0,
+                "cargo_variance_usd": 0.0,
+                "cargo_variance_pct": 0.0,
             },
             "ai_tariff_predictions": ai_tariff_preds,
             "ai_tariff_agrees": ai_tariff_agrees,
@@ -86,17 +110,14 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
     discrepancies: List[str] = []
     rows: List[Dict[str, Any]] = []
 
-    # 1. Vendor / Shipper Entity
-    shipper_match = (
-        po["vendor_name"].lower().split()[0] in extracted["shipper"].lower()
-        or extracted["shipper"].lower().split()[0] in po["vendor_name"].lower()
-    )
+    # 1. Vendor / Shipper Entity (Token-set overlap ignoring legal suffixes)
+    shipper_match = _shippers_match(extracted["shipper"], po["vendor_name"])
     rows.append(
         {
             "field": "Shipper / Exporter",
             "extracted": extracted["shipper"],
             "po_authorized": po["vendor_name"],
-            "variance": "Verified" if shipper_match else "Entity Mismatch",
+            "variance": "Entity Verified" if shipper_match else "Entity Mismatch",
             "status": "pass" if shipper_match else "warn",
         }
     )
@@ -130,8 +151,8 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
     rows.append(
         {
             "field": "WCO HS Tariff Code",
-            "extracted": f"{_format_hs(doc_hs)} — {hs_desc[:58]}",
-            "po_authorized": f"{_format_hs(po_hs)} — {po_hs_desc[:58]}",
+            "extracted": f"{_format_hs(doc_hs)} — {hs_desc[:54]}",
+            "po_authorized": f"{_format_hs(po_hs)} — {po_hs_desc[:54]}",
             "variance": hs_var,
             "status": hs_status,
         }
@@ -202,7 +223,34 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
         }
     )
 
-    # 6. Cold-Chain Reefer Telemetry Check
+    # 6. Cargo Valuation (FOB/CIF) Invoice Fraud Check (> 1.5% tolerance when both present)
+    po_cargo_usd = float(po.get("approved_cargo_usd") or 0.0)
+    doc_cargo_usd = float(extracted.get("cargo_value_usd") or 0.0)
+    if po_cargo_usd > 0 and doc_cargo_usd > 0:
+        cargo_var_usd = round(doc_cargo_usd - po_cargo_usd, 2)
+        cargo_var_pct = round((cargo_var_usd / po_cargo_usd) * 100.0, 2)
+        cargo_flagged = abs(cargo_var_pct) > 1.5 and abs(cargo_var_usd) > 100.0
+    else:
+        cargo_var_usd = 0.0
+        cargo_var_pct = 0.0
+        cargo_flagged = False
+
+    if cargo_flagged:
+        label = "over-invoicing" if cargo_var_usd > 0 else "under-invoicing"
+        discrepancies.append(
+            f"Cargo customs valuation {label} of {cargo_var_usd:+,.2f} USD ({cargo_var_pct:+.1f}%) vs authorized PO value ${po_cargo_usd:,.2f}."
+        )
+    rows.append(
+        {
+            "field": "Cargo Value FOB/CIF (USD)",
+            "extracted": f"${doc_cargo_usd:,.2f}" if doc_cargo_usd > 0 else "Not Declared",
+            "po_authorized": f"${po_cargo_usd:,.2f}" if po_cargo_usd > 0 else "N/A",
+            "variance": f"{cargo_var_usd:+,.2f} ({cargo_var_pct:+.1f}%)" if cargo_flagged else "Valuation Match",
+            "status": "fail" if cargo_flagged else "pass",
+        }
+    )
+
+    # 7. Cold-Chain Reefer Telemetry Check
     temp_val = extracted["reefer_temp_celsius"]
     max_temp = float(po["max_temp_celsius"])
     temp_breach = temp_val is not None and temp_val > max_temp
@@ -220,6 +268,21 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
         }
     )
 
+    # 8. ISO 6346 Maritime Container Check Digit Validation
+    iso_info = extracted.get("container_iso6346") or {}
+    iso_valid = bool(iso_info.get("valid", True))
+    rows.append(
+        {
+            "field": "Container ID (ISO 6346)",
+            "extracted": extracted["container_number"],
+            "po_authorized": f"Check Digit = {iso_info.get('expected_check_digit') if iso_info.get('expected_check_digit') is not None else 'Valid ISO'}",
+            "variance": "ISO 6346 Verified" if iso_valid else iso_info.get("reason", "Invalid Check Digit"),
+            "status": "pass" if iso_valid else "warn",
+        }
+    )
+    if not iso_valid:
+        discrepancies.append(f"Container ID '{extracted['container_number']}': {iso_info.get('reason', 'failed ISO 6346 check digit')}.")
+
     # Executive Decision
     if temp_breach:
         action_code = "QUARANTINE_VET_INSPECTION"
@@ -234,8 +297,8 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
         severity = "healthy"
         badge_text = "100% ERP & WCO Verified · Green Channel"
         assessment = (
-            f"All declared weights, WCO HS tariff ({_format_hs(doc_hs)}), UN/LOCODE seaports, contracted ocean freight, "
-            "and thermal logs match the authorized SAP Purchase Order. Cleared for automated customs filing."
+            f"Declared weight, WCO HS tariff ({_format_hs(doc_hs)}), UN/LOCODE seaports, contracted freight, "
+            "cargo valuation, ISO 6346 container ID, and thermal logs match the authorized SAP PO. Cleared for automated customs filing."
         )
     else:
         action_code = "HOLD_FOR_AMENDMENT"
@@ -252,10 +315,13 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
         weight_var_pct=weight_var_pct,
         freight_var_usd=freight_var_usd,
         freight_var_pct=freight_var_pct,
+        cargo_var_usd=cargo_var_usd,
+        cargo_var_pct=cargo_var_pct,
         hs_match=hs_match,
         ai_tariff_match=ai_tariff_agrees,
         route_match=route_match,
         temp_breach=temp_breach,
+        iso_valid=iso_valid,
     )
     dispute_notice = generate_dispute_notice(
         audit_ref=audit_ref,
@@ -263,6 +329,7 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
         po=po,
         discrepancies=discrepancies,
         freight_var_usd=freight_var_usd,
+        cargo_var_usd=cargo_var_usd,
     )
 
     result = {
@@ -292,6 +359,8 @@ def reconcile_document_bytes(filename: str, content: bytes, persist: bool = True
             "weight_variance_pct": weight_var_pct,
             "freight_variance_usd": freight_var_usd,
             "freight_variance_pct": freight_var_pct,
+            "cargo_variance_usd": cargo_var_usd,
+            "cargo_variance_pct": cargo_var_pct,
         },
         "comparison_rows": rows,
     }
